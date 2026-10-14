@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SocialAccount {
+  id           String   @id @default(cuid())
+  platform     String   // youtube | instagram | facebook | tiktok | rumble
+  label        String
+  accessToken  String
+  refreshToken String?
+  tokenExpiry  DateTime?
+  extra        String?  // JSON: channelId, pageId, etc.
+  status       String   @default("active") // active | expired | disconnected
+  createdAt    DateTime @default(now())
+  publishLogs  PublishLog[]
+  scheduledJobs ScheduledJob[]
+}
+
+model StorageAccount {
+  id         String   @id @default(cuid())
+  provider   String   // r2 | b2 | minio
+  label      String
+  accountId  String?
+  accessKey  String
+  secretKey  String
+  bucket     String
+  endpoint   String?
+  publicUrl  String?
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  series     Series[]
+}
+
+model Series {
+  id               String         @id @default(cuid())
+  title            String
+  description      String?
+  tags             String?
+  genre            String?
+  coverUrl         String?
+  storageAccountId String?
+  storageAccount   StorageAccount? @relation(fields: [storageAccountId], references: [id])
+  episodes         Episode[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+}
+
+model Episode {
+  id            String         @id @default(cuid())
+  seriesId      String
+  series        Series         @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  episodeNumber Int
+  title         String?
+  description   String?
+  tags          String?
+  thumbnailUrl  String?
+  r2Key         String?
+  r2Url         String?
+  fileSize      Int?
+  duration      Int?
+  status        String         @default("draft") // draft | uploading | ready | scheduled | publishing | published | failed
+  scheduledJobs ScheduledJob[]
+  publishLogs   PublishLog[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@unique([seriesId, episodeNumber])
+}
+
+model ScheduledJob {
+  id              String        @id @default(cuid())
+  episodeId       String
+  episode         Episode       @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id])
+  scheduledAt     DateTime
+  status          String        @default("pending") // pending | processing | done | failed | cancelled
+  retries         Int           @default(0)
+  lastError       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
+model PublishLog {
+  id              String        @id @default(cuid())
+  episodeId       String
+  episode         Episode       @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id])
+  platform        String
+  postUrl         String?
+  status          String        // success | failed
+  errorMessage    String?
+  publishedAt     DateTime      @default(now())
+}
+
+model NotificationSettings {
+  id              String  @id @default(cuid())
+  telegramBotToken String?
+  telegramChatId   String?
+  discordWebhook   String?
+  onSuccess        Boolean @default(true)
+  onFailure        Boolean @default(true)
+  onStorageWarning Boolean @default(true)
+  onTokenExpiry    Boolean @default(true)
+}
