@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import UploadClient from './UploadClient'
 
+export const dynamic = 'force-dynamic'
+
 export default async function UploadPage() {
   const [series, storageAccounts, socialAccounts] = await Promise.all([
     prisma.series.findMany({ orderBy: { title: 'asc' } }),

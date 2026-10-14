@@ -3,17 +3,32 @@ import Link from 'next/link'
 import { Tv, Calendar, CloudUpload, Zap, Plus, ArrowUpRight, Film, Sparkles } from 'lucide-react'
 
 export default async function DashboardPage() {
-  const [totalSeries, scheduledJobs, uploadingEps, activeJobs, recentSeries] = await Promise.all([
-    prisma.series.count(),
-    prisma.scheduledJob.count({ where: { status: 'pending' } }),
-    prisma.episode.count({ where: { status: 'uploading' } }),
-    prisma.scheduledJob.count({ where: { status: 'processing' } }),
-    prisma.series.findMany({
-      take: 12,
-      orderBy: { updatedAt: 'desc' },
-      include: { episodes: true },
-    }),
-  ])
+  let totalSeries = 0
+  let scheduledJobs = 0
+  let uploadingEps = 0
+  let activeJobs = 0
+  let recentSeries: any[] = []
+
+  try {
+    const results = await Promise.all([
+      prisma.series.count(),
+      prisma.scheduledJob.count({ where: { status: 'pending' } }),
+      prisma.episode.count({ where: { status: 'uploading' } }),
+      prisma.scheduledJob.count({ where: { status: 'processing' } }),
+      prisma.series.findMany({
+        take: 12,
+        orderBy: { updatedAt: 'desc' },
+        include: { episodes: true },
+      }),
+    ])
+    totalSeries = results[0]
+    scheduledJobs = results[1]
+    uploadingEps = results[2]
+    activeJobs = results[3]
+    recentSeries = results[4]
+  } catch (err) {
+    console.warn('Database query during page load fell back to empty defaults:', err)
+  }
 
   const stats = [
     {
@@ -182,11 +197,12 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentSeries.map((s) => {
-              const publishedCount = s.episodes.filter((e) => e.status === 'published').length
-              const totalEp = s.episodes.length
+            {recentSeries.map((s: any) => {
+              const eps = Array.isArray(s.episodes) ? s.episodes : []
+              const publishedCount = eps.filter((e: any) => e.status === 'published').length
+              const totalEp = eps.length
               const progressPct = totalEp > 0 ? Math.round((publishedCount / totalEp) * 100) : 0
-              const uniqueStatuses = [...new Set(s.episodes.map((e) => e.status))]
+              const uniqueStatuses: string[] = Array.from(new Set(eps.map((e: any) => String(e.status))))
 
               return (
                 <Link
@@ -228,7 +244,7 @@ export default async function DashboardPage() {
                   {/* Status Badges */}
                   <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
                     <div className="flex gap-1.5 flex-wrap">
-                      {uniqueStatuses.slice(0, 2).map((st) => {
+                      {uniqueStatuses.slice(0, 2).map((st: string) => {
                         const style = statusBadge[st] || statusBadge.draft
                         return (
                           <span

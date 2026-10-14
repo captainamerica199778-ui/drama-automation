@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import { Plus, Tv, Film, ArrowUpRight } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 const statusBadge: Record<string, { bg: string; text: string; dot: string }> = {
   draft: { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-300', dot: 'bg-gray-400' },
   scheduled: { bg: 'bg-amber-500/10 border-amber-500/20', text: 'text-amber-300', dot: 'bg-amber-400 animate-pulse' },
