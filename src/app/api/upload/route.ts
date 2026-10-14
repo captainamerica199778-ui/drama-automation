@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { uploadFileToStorage, getPublicUrl } from '@/lib/storage'
 
-export const config = { api: { bodyParser: false } }
-
 // POST /api/upload - Upload episode video to storage
 export async function POST(req: NextRequest) {
   const formData = await req.formData()

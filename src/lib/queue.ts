@@ -38,11 +38,13 @@ export async function processDueScheduledJobs() {
     const series = ep.series
     const social = job.socialAccount
 
-    let credentials: Record<string, any> = {}
+    let credentials: Record<string, any> = { accessToken: social.accessToken }
     try {
-      credentials = JSON.parse(social.credentials)
+      if (social.extra) {
+        credentials = { ...credentials, ...JSON.parse(social.extra) }
+      }
     } catch {
-      credentials = {}
+      // ignore
     }
 
     const videoUrl = ep.r2Url
@@ -50,7 +52,7 @@ export async function processDueScheduledJobs() {
     if (!videoUrl) {
       await prisma.scheduledJob.update({
         where: { id: job.id },
-        data: { status: 'failed', errorMessage: 'No storage URL found for this episode' },
+        data: { status: 'failed', lastError: 'No storage URL found for this episode' },
       })
       continue
     }
@@ -65,22 +67,25 @@ export async function processDueScheduledJobs() {
       thumbnailUrl: ep.thumbnailUrl || series.coverUrl || undefined,
     })
 
-    const status = pubRes.success ? 'published' : 'failed'
+    const status = pubRes.success ? 'done' : 'failed'
 
     // Update job status
     await prisma.scheduledJob.update({
       where: { id: job.id },
       data: {
         status,
+        lastError: pubRes.error,
+      },
+    })
+
+    await prisma.publishLog.create({
+      data: {
+        episodeId: ep.id,
+        socialAccountId: social.id,
+        platform: social.platform,
+        status: pubRes.success ? 'success' : 'failed',
+        postUrl: pubRes.postUrl,
         errorMessage: pubRes.error,
-        publishLogs: {
-          create: {
-            platform: social.platform,
-            status,
-            postUrl: pubRes.postUrl,
-            errorMsg: pubRes.error,
-          },
-        },
       },
     })
 

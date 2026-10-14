@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { deleteFromStorage } from '@/lib/storage'
 
 // DELETE /api/series/[id]/episodes - Delete all episodes or a batch of selected episodes
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   let episodeIds: string[] | undefined
 
   try {
@@ -14,7 +15,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   }
 
   const series = await prisma.series.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       storageAccount: true,
       episodes: episodeIds?.length ? { where: { id: { in: episodeIds } } } : true,
@@ -55,12 +56,12 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     await prisma.episode.deleteMany({
       where: {
         id: { in: episodeIds },
-        seriesId: params.id,
+        seriesId: id,
       },
     })
   } else {
     await prisma.episode.deleteMany({
-      where: { seriesId: params.id },
+      where: { seriesId: id },
     })
   }
 

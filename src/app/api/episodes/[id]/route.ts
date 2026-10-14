@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { deleteFromStorage } from '@/lib/storage'
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const episode = await prisma.episode.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       series: {
         include: { storageAccount: true },
@@ -37,7 +38,7 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
   }
 
   // Delete from database
-  await prisma.episode.delete({ where: { id: params.id } })
+  await prisma.episode.delete({ where: { id } })
 
-  return NextResponse.json({ ok: true, deletedId: params.id })
+  return NextResponse.json({ ok: true, deletedId: id })
 }

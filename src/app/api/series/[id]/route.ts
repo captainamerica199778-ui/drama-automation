@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { deleteFromStorage } from '@/lib/storage'
 
-export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const series = await prisma.series.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       episodes: { orderBy: { episodeNumber: 'asc' } },
       storageAccount: true,
@@ -14,15 +15,17 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
   return NextResponse.json(series)
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const body = await req.json()
-  const series = await prisma.series.update({ where: { id: params.id }, data: body })
+  const series = await prisma.series.update({ where: { id }, data: body })
   return NextResponse.json(series)
 }
 
-export async function DELETE(_: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const series = await prisma.series.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { storageAccount: true, episodes: true },
   })
 
@@ -49,6 +52,6 @@ export async function DELETE(_: NextRequest, { params }: { params: { id: string 
     }
   }
 
-  await prisma.series.delete({ where: { id: params.id } })
+  await prisma.series.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }
