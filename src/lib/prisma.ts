@@ -2,6 +2,16 @@ import { PrismaClient } from '@prisma/client'
 import fs from 'fs'
 import path from 'path'
 
+// Auto-fallback from Vercel Postgres / Neon integration env vars
+if (!process.env.DATABASE_URL) {
+  if (process.env.POSTGRES_PRISMA_URL || process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING) {
+    process.env.DATABASE_URL =
+      process.env.POSTGRES_PRISMA_URL ||
+      process.env.POSTGRES_URL ||
+      process.env.POSTGRES_URL_NON_POOLING
+  }
+}
+
 // If DATABASE_URL is not provided or is SQLite, handle serverless read-only filesystem
 const isRemoteDb =
   process.env.DATABASE_URL &&
