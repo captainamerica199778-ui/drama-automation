@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Upload, FolderOpen, CheckCircle, XCircle, Clock } from 'lucide-react'
 
 type EpisodeFile = {
@@ -31,7 +31,24 @@ export default function UploadClient({
   const [seriesTags, setSeriesTags] = useState('')
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null)
   const [storageAccountId, setStorageAccountId] = useState('')
+  const [localAccounts, setLocalAccounts] = useState<any[]>(storageAccounts || [])
   const [episodes, setEpisodes] = useState<EpisodeFile[]>([])
+
+  useEffect(() => {
+    fetch('/api/storage')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setLocalAccounts(data)
+          setStorageAccountId((curr) => {
+            if (curr) return curr
+            const defaultAcc = data.find((a: any) => a.isDefault) || data[0]
+            return defaultAcc ? defaultAcc.id : ''
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
   const [scheduleTargets, setScheduleTargets] = useState<string[]>([])
   const [startAt, setStartAt] = useState('')
   const [intervalHours, setIntervalHours] = useState(24)
@@ -268,13 +285,13 @@ export default function UploadClient({
               onChange={(e) => setStorageAccountId(e.target.value)}
             >
               <option value="" className="bg-gray-900 text-gray-300">Select target bucket…</option>
-              {storageAccounts.map((s) => (
+              {localAccounts.map((s) => (
                 <option key={s.id} value={s.id} className="bg-gray-900 text-white">
                   {s.label} ({s.provider.toUpperCase()} · {s.bucket})
                 </option>
               ))}
             </select>
-            {storageAccounts.length === 0 && (
+            {localAccounts.length === 0 && (
               <p className="text-xs text-amber-400 mt-1.5">
                 No storage account connected. <a href="/storage" className="underline font-semibold">Connect Cloudflare R2 or B2 first →</a>
               </p>
