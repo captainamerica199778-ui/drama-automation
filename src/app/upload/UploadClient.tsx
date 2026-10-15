@@ -9,6 +9,7 @@ type EpisodeFile = {
   status: 'pending' | 'uploading' | 'done' | 'error'
   progress: number
   error?: string
+  savedId?: string
 }
 
 function detectEpisodeNumber(name: string): number {
@@ -96,39 +97,142 @@ export default function UploadClient({
       activeSeriesId = data.id
     }
 
-    // Upload each episode
+    // Upload series cover thumbnail once if provided
+    let uploadedThumbnailUrl = ''
+    if (thumbnailFile) {
+      try {
+        const presignThumbRes = await fetch('/api/upload/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            seriesId: activeSeriesId,
+            fileName: `cover_${thumbnailFile.name}`,
+            contentType: thumbnailFile.type || 'image/jpeg',
+          }),
+        })
+        if (presignThumbRes.ok) {
+          const { uploadUrl, publicUrl } = await presignThumbRes.json()
+          await fetch(uploadUrl, {
+            method: 'PUT',
+            body: thumbnailFile,
+            headers: { 'Content-Type': thumbnailFile.type || 'image/jpeg' },
+          })
+          uploadedThumbnailUrl = publicUrl
+        }
+      } catch (e) {
+        console.warn('Thumbnail presign upload notice:', e)
+      }
+    }
+
+    let successCount = 0
+    // Upload each episode directly to Cloudflare R2 / S3
     for (let i = 0; i < episodes.length; i++) {
       const ep = episodes[i]
-      setEpisodes((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'uploading' } : e))
+      if (ep.status === 'done') {
+        successCount++
+        continue
+      }
 
-      const fd = new FormData()
-      fd.append('file', ep.file)
-      fd.append('seriesId', activeSeriesId)
-      fd.append('episodeNumber', String(ep.episodeNumber))
-      fd.append('title', ep.title)
-      if (seriesDescription) fd.append('description', seriesDescription)
-      if (seriesTags) fd.append('tags', seriesTags)
-      if (thumbnailFile) fd.append('thumbnail', thumbnailFile)
+      setEpisodes((prev) =>
+        prev.map((e, idx) => (idx === i ? { ...e, status: 'uploading', progress: 5, error: undefined } : e))
+      )
 
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
-        if (res.ok) {
-          setEpisodes((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'done', progress: 100 } : e))
-        } else {
-          const data = await res.json()
-          setEpisodes((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'error', error: data.error } : e))
+        // Step 1: Request presigned direct upload URL
+        const presignRes = await fetch('/api/upload/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            seriesId: activeSeriesId,
+            fileName: ep.file.name,
+            contentType: ep.file.type || 'video/mp4',
+          }),
+        })
+
+        if (!presignRes.ok) {
+          const errData = await presignRes.json().catch(() => ({}))
+          throw new Error(errData.error || 'Failed to initialize direct upload')
         }
+
+        const { uploadUrl, key, publicUrl } = await presignRes.json()
+
+        // Step 2: Stream directly from browser to Cloudflare R2 with progress
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          xhr.open('PUT', uploadUrl)
+          xhr.setRequestHeader('Content-Type', ep.file.type || 'video/mp4')
+
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const pct = Math.min(99, Math.round((event.loaded / event.total) * 100))
+              setEpisodes((prev) =>
+                prev.map((e, idx) => (idx === i ? { ...e, progress: pct } : e))
+              )
+            }
+          }
+
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve()
+            } else {
+              reject(new Error(`Storage returned HTTP ${xhr.status}`))
+            }
+          }
+
+          xhr.onerror = () => reject(new Error('Direct storage upload failed. Please verify bucket CORS in Cloudflare.'))
+          xhr.ontimeout = () => reject(new Error('Direct upload timed out.'))
+          xhr.send(ep.file)
+        })
+
+        // Step 3: Register completed episode into database
+        const completeRes = await fetch('/api/upload/complete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            seriesId: activeSeriesId,
+            episodeNumber: ep.episodeNumber,
+            title: ep.title,
+            description: seriesDescription,
+            tags: seriesTags,
+            thumbnailUrl: uploadedThumbnailUrl || undefined,
+            r2Key: key,
+            r2Url: publicUrl,
+            fileSize: ep.file.size,
+          }),
+        })
+
+        if (!completeRes.ok) {
+          const cData = await completeRes.json().catch(() => ({}))
+          throw new Error(cData.error || 'Failed to save episode details')
+        }
+
+        const savedEp = await completeRes.json()
+        successCount++
+        setEpisodes((prev) =>
+          prev.map((e, idx) =>
+            idx === i ? { ...e, status: 'done', progress: 100, savedId: savedEp.id } : e
+          )
+        )
       } catch (err: any) {
-        setEpisodes((prev) => prev.map((e, idx) => idx === i ? { ...e, status: 'error', error: err.message } : e))
+        console.error(`Upload error for ep ${ep.episodeNumber}:`, err)
+        setEpisodes((prev) =>
+          prev.map((e, idx) =>
+            idx === i ? { ...e, status: 'error', error: err.message || 'Upload failed' } : e
+          )
+        )
       }
     }
 
     setUploading(false)
-    setStep(3)
-    setMsg('')
+    if (successCount > 0) {
+      setStep(3)
+      setMsg('')
+    } else {
+      setMsg('❌ Upload failed. If using Cloudflare R2, make sure your bucket CORS policy allows PUT requests.')
+    }
   }
 
-  const doneEpisodeIds = episodes.filter((e) => e.status === 'done').map((_, i) => `ep_${i}`)
+  const doneEpisodeIds = episodes.filter((e) => e.status === 'done' && e.savedId).map((e) => e.savedId!)
 
   const handleSchedule = async () => {
     if (!scheduleTargets.length) { setMsg('Select at least one target account.'); return }
@@ -366,6 +470,10 @@ export default function UploadClient({
                       <div className="text-sm font-semibold text-white truncate">{ep.title}</div>
                       <div className="text-xs text-gray-400">
                         {(ep.file.size / 1024 / 1024).toFixed(1)} MB · Status: {ep.status}
+                        {ep.status === 'uploading' && ` (${ep.progress || 0}%)`}
+                        {ep.status === 'error' && ep.error && (
+                          <span className="text-rose-400 block mt-0.5 truncate">{ep.error}</span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

@@ -1,5 +1,6 @@
-import { S3Client, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
+import { S3Client, DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand, PutBucketCorsCommand } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 export interface StorageConfig {
   provider: 'r2' | 'b2' | 'minio'
@@ -8,6 +9,7 @@ export interface StorageConfig {
   bucket: string
   endpoint?: string
   accountId?: string
+  publicUrl?: string
 }
 
 export function createS3Client(config: StorageConfig) {
@@ -30,6 +32,47 @@ export function createS3Client(config: StorageConfig) {
     },
     forcePathStyle: config.provider === 'minio',
   })
+}
+
+export async function createPresignedUploadUrl(
+  config: StorageConfig,
+  key: string,
+  contentType: string,
+  expiresIn = 3600
+): Promise<string> {
+  const client = createS3Client(config)
+  const command = new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: key,
+    ContentType: contentType,
+  })
+  return getSignedUrl(client, command, { expiresIn })
+}
+
+export async function ensureBucketCors(config: StorageConfig): Promise<boolean> {
+  try {
+    const client = createS3Client(config)
+    await client.send(
+      new PutBucketCorsCommand({
+        Bucket: config.bucket,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: ['*'],
+              AllowedMethods: ['GET', 'PUT', 'POST', 'HEAD', 'DELETE'],
+              AllowedHeaders: ['*'],
+              ExposeHeaders: ['ETag'],
+              MaxAgeSeconds: 3600,
+            },
+          ],
+        },
+      })
+    )
+    return true
+  } catch (err) {
+    console.warn('[storage] Notice: PutBucketCors not permitted on token or failed:', err)
+    return false
+  }
 }
 
 export async function uploadFileToStorage(
@@ -67,8 +110,20 @@ export async function listStorageFiles(config: StorageConfig, prefix?: string) {
   return resp.Contents || []
 }
 
-export function getPublicUrl(config: StorageConfig, key: string) {
-  if (config.provider === 'r2' && config.endpoint) return `${config.endpoint}/${key}`
-  if (config.provider === 'b2') return `${config.endpoint}/${config.bucket}/${key}`
-  return `${config.endpoint || 'http://localhost:9000'}/${config.bucket}/${key}`
+export function getPublicUrl(config: StorageConfig, key: string): string {
+  if (config.publicUrl) {
+    return `${config.publicUrl.replace(/\/$/, '')}/${key}`
+  }
+  if (config.provider === 'r2') {
+    if (config.endpoint && !config.endpoint.includes('cloudflarestorage.com')) {
+      return `${config.endpoint.replace(/\/$/, '')}/${key}`
+    }
+    return `https://${config.accountId}.r2.cloudflarestorage.com/${config.bucket}/${key}`
+  }
+  if (config.provider === 'b2') {
+    const base = (config.endpoint || 'https://s3.us-west-004.backblazeb2.com').replace(/\/$/, '')
+    return `${base}/${config.bucket}/${key}`
+  }
+  const base = (config.endpoint || 'http://localhost:9000').replace(/\/$/, '')
+  return `${base}/${config.bucket}/${key}`
 }
