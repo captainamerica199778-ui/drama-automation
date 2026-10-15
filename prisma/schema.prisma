@@ -108,4 +108,5 @@ model NotificationSettings {
   onFailure        Boolean @default(true)
   onStorageWarning Boolean @default(true)
   onTokenExpiry    Boolean @default(true)
+  adminPasswordHash String?
 }

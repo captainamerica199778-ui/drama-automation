@@ -78,15 +78,15 @@ export async function verifyPassword(password: string): Promise<boolean> {
   // 1. Check if custom hashed password exists in DB settings
   try {
     const settings = await prisma.notificationSettings.findFirst()
-    if (settings && (settings as any).adminPasswordHash) {
+    if (settings && settings.adminPasswordHash) {
       const hashedInput = await hashString(cleanInput)
-      return (settings as any).adminPasswordHash === hashedInput
+      return settings.adminPasswordHash === hashedInput
     }
   } catch {
     // ignore
   }
 
-  // 2. Check process.env.ADMIN_PASSWORD (strip surrounding quotes if present)
+  // 2. If no custom database password is set yet, check process.env or fallback to admin1234
   const rawEnv = process.env.ADMIN_PASSWORD || 'admin1234'
   const envPassword = rawEnv.trim().replace(/^["']|["']$/g, '')
   return cleanInput === envPassword || cleanInput === 'admin1234'

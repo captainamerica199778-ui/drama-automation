@@ -22,16 +22,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Current password is incorrect' }, { status: 401 })
     }
 
-    // Update .env file with new ADMIN_PASSWORD
-    const envPath = path.join(process.cwd(), '.env')
-    if (fs.existsSync(envPath)) {
-      let envContent = fs.readFileSync(envPath, 'utf8')
-      if (envContent.includes('ADMIN_PASSWORD=')) {
-        envContent = envContent.replace(/ADMIN_PASSWORD="?[^"\n\r]*"?/, `ADMIN_PASSWORD="${newPassword}"`)
-      } else {
-        envContent += `\nADMIN_PASSWORD="${newPassword}"\n`
+    const cleanNewPw = newPassword.trim()
+    const passwordHash = await hashString(cleanNewPw)
+
+    // 1. Persist hashed password in Database
+    let settings = await prisma.notificationSettings.findFirst()
+    if (settings) {
+      await prisma.notificationSettings.update({
+        where: { id: settings.id },
+        data: { adminPasswordHash: passwordHash },
+      })
+    } else {
+      await prisma.notificationSettings.create({
+        data: { adminPasswordHash: passwordHash },
+      })
+    }
+
+    // 2. Update active memory process.env
+    process.env.ADMIN_PASSWORD = cleanNewPw
+
+    // 3. Update local .env file if present
+    try {
+      const envPath = path.join(process.cwd(), '.env')
+      if (fs.existsSync(envPath)) {
+        let envContent = fs.readFileSync(envPath, 'utf8')
+        if (envContent.includes('ADMIN_PASSWORD=')) {
+          envContent = envContent.replace(/ADMIN_PASSWORD="?[^"\n\r]*"?/, `ADMIN_PASSWORD="${cleanNewPw}"`)
+        } else {
+          envContent += `\nADMIN_PASSWORD="${cleanNewPw}"\n`
+        }
+        fs.writeFileSync(envPath, envContent, 'utf8')
       }
-      fs.writeFileSync(envPath, envContent, 'utf8')
+    } catch {
+      // Ignore if filesystem is read-only (e.g. Vercel)
     }
 
     return NextResponse.json({ ok: true, message: 'Master password updated successfully!' })
