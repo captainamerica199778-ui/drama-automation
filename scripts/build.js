@@ -1,11 +1,28 @@
 const { execSync } = require('child_process')
+const fs = require('fs')
+const path = require('path')
 
-// Ensure DATABASE_URL is always defined so Prisma schema validation never fails
+// Normalize and auto-fallback DATABASE_URL
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = 'file:./dev.db'
 }
 
-console.log('[build.js] Using DATABASE_URL:', process.env.DATABASE_URL.startsWith('file:') ? 'file:./dev.db' : '[REDACTED_CLOUD_DB]')
+const isPostgres = process.env.DATABASE_URL.startsWith('postgres')
+const isMysql = process.env.DATABASE_URL.startsWith('mysql')
+const targetProvider = isPostgres ? 'postgresql' : isMysql ? 'mysql' : 'sqlite'
+
+console.log('[build.js] Target database provider:', targetProvider)
+
+const schemaPath = path.join(__dirname, '..', 'prisma', 'schema.prisma')
+if (fs.existsSync(schemaPath)) {
+  let schema = fs.readFileSync(schemaPath, 'utf8')
+  if (isPostgres || isMysql) {
+    console.log(`[build.js] Adapting Prisma datasource provider to ${targetProvider}...`)
+    schema = schema.replace(/provider\s*=\s*"sqlite"/, `provider = "${targetProvider}"`)
+    fs.writeFileSync(schemaPath, schema)
+    execSync('npx prisma generate', { stdio: 'inherit', env: process.env })
+  }
+}
 
 try {
   console.log('[build.js] Syncing database schema...')

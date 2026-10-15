@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { HardDrive, Cloud, Server, Plus, Trash2, CheckCircle2, AlertCircle, ShieldAlert, Sparkles, Database, ExternalLink } from 'lucide-react'
 
 const PROVIDERS = [
@@ -45,13 +45,24 @@ const FIELD_CONFIG: Record<string, { label: string; placeholder: string; hint?: 
 }
 
 export default function StorageClient({ accounts }: { accounts: any[] }) {
-  const [localAccounts, setLocalAccounts] = useState(accounts)
+  const [localAccounts, setLocalAccounts] = useState(accounts || [])
   const [provider, setProvider] = useState('r2')
   const [label, setLabel] = useState('')
   const [form, setForm] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
+  useEffect(() => {
+    fetch('/api/storage')
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setLocalAccounts(data)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const selectedProvider = PROVIDERS.find((p) => p.id === provider)!
 

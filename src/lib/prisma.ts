@@ -2,23 +2,28 @@ import { PrismaClient } from '@prisma/client'
 import fs from 'fs'
 import path from 'path'
 
-// On Vercel / serverless runtime, the root directory is read-only.
-// If using SQLite, copy the template database to /tmp/dev.db so writes succeed.
-if (process.env.VERCEL) {
-  const tmpDbPath = '/tmp/dev.db'
-  if (!fs.existsSync(tmpDbPath)) {
-    const bundledDbPath = path.join(process.cwd(), 'prisma', 'dev.db')
-    if (fs.existsSync(bundledDbPath)) {
-      try {
-        fs.copyFileSync(bundledDbPath, tmpDbPath)
-      } catch (e) {
-        console.warn('Failed to copy bundled db to /tmp:', e)
+// If DATABASE_URL is not provided or is SQLite, handle serverless read-only filesystem
+const isRemoteDb =
+  process.env.DATABASE_URL &&
+  (process.env.DATABASE_URL.startsWith('postgres') || process.env.DATABASE_URL.startsWith('mysql'))
+
+if (!isRemoteDb) {
+  if (process.env.VERCEL) {
+    const tmpDbPath = '/tmp/dev.db'
+    if (!fs.existsSync(tmpDbPath)) {
+      const bundledDbPath = path.join(process.cwd(), 'prisma', 'dev.db')
+      if (fs.existsSync(bundledDbPath)) {
+        try {
+          fs.copyFileSync(bundledDbPath, tmpDbPath)
+        } catch (e) {
+          console.warn('Failed to copy bundled db to /tmp:', e)
+        }
       }
     }
+    process.env.DATABASE_URL = `file:${tmpDbPath}`
+  } else if (!process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = 'file:./dev.db'
   }
-  process.env.DATABASE_URL = `file:${tmpDbPath}`
-} else if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = 'file:./dev.db'
 }
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
