@@ -12,6 +12,10 @@ import {
   CheckSquare,
   Square,
   AlertTriangle,
+  Edit3,
+  Check,
+  X,
+  Image as ImageIcon,
 } from 'lucide-react'
 
 const statusBadge: Record<string, { bg: string; text: string; dot: string }> = {
@@ -30,6 +34,53 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [deleting, setDeleting] = useState(false)
   const [msg, setMsg] = useState('')
+
+  // Edit State
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(initialSeries.title || '')
+  const [editDescription, setEditDescription] = useState(initialSeries.description || '')
+  const [editGenre, setEditGenre] = useState(initialSeries.genre || '')
+  const [editTags, setEditTags] = useState(initialSeries.tags || '')
+  const [editCoverUrl, setEditCoverUrl] = useState(initialSeries.coverUrl || '')
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSavingEdit(true)
+    try {
+      const res = await fetch(`/api/series/${series.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle,
+          description: editDescription,
+          genre: editGenre,
+          tags: editTags,
+          coverUrl: editCoverUrl || null,
+        }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setSeries((prev: any) => ({
+          ...prev,
+          title: updated.title,
+          description: updated.description,
+          genre: updated.genre,
+          tags: updated.tags,
+          coverUrl: updated.coverUrl,
+        }))
+        setIsEditing(false)
+        setMsg('✅ Series details updated successfully!')
+      } else {
+        const errData = await res.json()
+        setMsg(`❌ ${errData.error || 'Failed to update'}`)
+      }
+    } catch (err: any) {
+      setMsg(`❌ ${err.message}`)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   const episodes = series.episodes || []
   const published = episodes.filter((e: any) => e.status === 'published').length
@@ -173,13 +224,21 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
           <ArrowLeft size={14} /> Back to All Series
         </Link>
 
-        <button
-          onClick={handleDeleteSeries}
-          disabled={deleting}
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-400 hover:text-rose-200 glass-card hover:bg-rose-500/10 px-3.5 py-1.5 rounded-xl border border-rose-500/20 transition-colors"
-        >
-          <Trash2 size={13} /> Delete Entire Series
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsEditing(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-300 hover:text-white glass-card hover:bg-purple-600/20 px-3.5 py-1.5 rounded-xl border border-purple-500/30 transition-colors shadow"
+          >
+            <Edit3 size={13} /> Edit Series
+          </button>
+          <button
+            onClick={handleDeleteSeries}
+            disabled={deleting}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-400 hover:text-rose-200 glass-card hover:bg-rose-500/10 px-3.5 py-1.5 rounded-xl border border-rose-500/20 transition-colors"
+          >
+            <Trash2 size={13} /> Delete Entire Series
+          </button>
+        </div>
       </div>
 
       {/* Series Hero Banner */}
@@ -187,8 +246,15 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 relative z-10">
           <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-tr from-purple-900 via-indigo-900 to-violet-700 p-0.5 shadow-xl shadow-purple-500/20 shrink-0">
             <div className="w-full h-full bg-[#0d0f1a] rounded-[14px] flex items-center justify-center overflow-hidden">
-              {series.coverUrl ? (
-                <img src={series.coverUrl} className="w-full h-full object-cover" alt={series.title} />
+              {(series.coverUrl || episodes.find((e: any) => e.thumbnailUrl)?.thumbnailUrl) ? (
+                <img
+                  src={series.coverUrl || episodes.find((e: any) => e.thumbnailUrl)?.thumbnailUrl}
+                  className="w-full h-full object-cover"
+                  alt={series.title}
+                  onError={(e) => {
+                    ;(e.target as HTMLElement).style.display = 'none'
+                  }}
+                />
               ) : (
                 <Film size={36} className="text-purple-400" />
               )}
@@ -391,6 +457,121 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
           </div>
         )}
       </div>
+
+      {/* Edit Series Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="glass-panel w-full max-w-lg rounded-2xl border border-white/[0.12] p-6 shadow-2xl relative space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                  <Edit3 size={16} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Edit Series Details</h3>
+                  <p className="text-xs text-gray-400">Update drama title, description, genre, and thumbnail</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="w-8 h-8 rounded-xl glass-card flex items-center justify-center text-gray-400 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1.5">Series Title</label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1.5">Genre</label>
+                <input
+                  type="text"
+                  value={editGenre}
+                  onChange={(e) => setEditGenre(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g. Romance, Apocalyptic, Fantasy"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1.5">Description</label>
+                <textarea
+                  rows={3}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1.5">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  value={editTags}
+                  onChange={(e) => setEditTags(e.target.value)}
+                  className="w-full glass-input rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-300 block mb-1.5">
+                  Cover Image / Thumbnail URL
+                </label>
+                <div className="flex gap-3 items-center">
+                  <div className="w-14 h-14 rounded-xl bg-black/40 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center">
+                    {editCoverUrl ? (
+                      <img
+                        src={editCoverUrl}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          ;(e.target as HTMLElement).style.display = 'none'
+                        }}
+                      />
+                    ) : (
+                      <ImageIcon size={20} className="text-gray-500" />
+                    )}
+                  </div>
+                  <input
+                    type="url"
+                    value={editCoverUrl}
+                    onChange={(e) => setEditCoverUrl(e.target.value)}
+                    className="flex-1 glass-input rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    placeholder="https://.../cover.jpg or R2 public URL"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-400 hover:text-white glass-card"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="inline-flex items-center gap-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold px-5 py-2 rounded-xl text-xs shadow-lg shadow-purple-500/25 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  <Check size={14} /> {savingEdit ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

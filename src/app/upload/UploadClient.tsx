@@ -17,6 +17,22 @@ function detectEpisodeNumber(name: string): number {
   return m ? parseInt(m[1]) : 0
 }
 
+function getLocalDatetimeString(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function getMinutesFromNow(mins: number) {
+  return getLocalDatetimeString(new Date(Date.now() + mins * 60 * 1000))
+}
+
+function getTomorrowAt(hour: number, minute: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  d.setHours(hour, minute, 0, 0)
+  return getLocalDatetimeString(d)
+}
+
 export default function UploadClient({
   series,
   storageAccounts,
@@ -51,8 +67,9 @@ export default function UploadClient({
       .catch(() => {})
   }, [])
   const [scheduleTargets, setScheduleTargets] = useState<string[]>([])
-  const [startAt, setStartAt] = useState('')
-  const [intervalHours, setIntervalHours] = useState(24)
+  const [startAt, setStartAt] = useState(() => getMinutesFromNow(2))
+  const [intervalUnit, setIntervalUnit] = useState<'minutes' | 'hours'>('minutes')
+  const [intervalVal, setIntervalVal] = useState(2)
   const [step, setStep] = useState(1)
   const [uploading, setUploading] = useState(false)
   const [scheduling, setScheduling] = useState(false)
@@ -236,26 +253,25 @@ export default function UploadClient({
 
   const handleSchedule = async () => {
     if (!scheduleTargets.length) { setMsg('Select at least one target account.'); return }
-    if (!startAt) { setMsg('Set a start date/time.'); return }
+    const effectiveStart = startAt || getMinutesFromNow(2)
     setScheduling(true)
 
-    // Get episode IDs from DB (simplified: we pass all ep numbers + seriesId)
-    const seriesRes = await fetch(`/api/series/${seriesId || 'new'}`)
-    // For now send to schedule endpoint
+    const calculatedMinutes = intervalUnit === 'minutes' ? intervalVal : intervalVal * 60
+
     const res = await fetch('/api/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         episodeIds: doneEpisodeIds,
         socialAccountIds: scheduleTargets,
-        startAt,
-        intervalHours,
+        startAt: effectiveStart,
+        intervalMinutes: calculatedMinutes,
       }),
     })
 
     setScheduling(false)
     const data = await res.json()
-    if (res.ok) setMsg(`✅ ${data.jobs?.length || 0} jobs scheduled!`)
+    if (res.ok) setMsg(`✅ ${data.jobs?.length || 0} jobs scheduled successfully starting at ${new Date(effectiveStart).toLocaleTimeString()}!`)
     else setMsg(`❌ ${data.error}`)
   }
 
@@ -555,47 +571,102 @@ export default function UploadClient({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-1.5">First Episode Date & Time</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-gray-300">First Episode Release</label>
+                <button
+                  type="button"
+                  onClick={() => setStartAt(getMinutesFromNow(2))}
+                  className="text-[11px] font-bold text-purple-400 hover:text-purple-300 transition-colors"
+                >
+                  ⚡ Starts in 2 min
+                </button>
+              </div>
               <input
                 type="datetime-local"
                 className="w-full glass-input rounded-xl px-4 py-2.5 text-sm"
                 value={startAt}
                 onChange={(e) => setStartAt(e.target.value)}
               />
+              <div className="flex gap-1.5 flex-wrap mt-2">
+                {[
+                  { label: '⚡ In 2 min', fn: () => setStartAt(getMinutesFromNow(2)) },
+                  { label: '⏱️ In 15 min', fn: () => setStartAt(getMinutesFromNow(15)) },
+                  { label: '🕐 In 1 hour', fn: () => setStartAt(getMinutesFromNow(60)) },
+                  { label: '🌅 Tomorrow 9AM', fn: () => setStartAt(getTomorrowAt(9, 0)) },
+                ].map(({ label, fn }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={fn}
+                    className="text-[10px] px-2.5 py-1 rounded-lg font-medium glass-card hover:bg-white/[0.08] text-gray-400 hover:text-white transition-colors"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div>
-              <label className="text-xs font-semibold text-gray-300 block mb-1.5">Posting Interval (hours)</label>
-              <input
-                type="number"
-                min={0}
-                className="w-full glass-input rounded-xl px-4 py-2.5 text-sm"
-                value={intervalHours}
-                onChange={(e) => setIntervalHours(parseInt(e.target.value) || 0)}
-              />
-            </div>
-          </div>
 
-          {/* Quick presets */}
-          <div>
-            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block mb-2">Interval Presets</span>
-            <div className="flex gap-2 flex-wrap">
-              {[
-                { label: 'Every 2 Hours', val: 2 },
-                { label: 'Every 4 Hours', val: 4 },
-                { label: 'Every 6 Hours', val: 6 },
-                { label: 'Daily (24 Hours)', val: 24 },
-              ].map(({ label, val }) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setIntervalHours(val)}
-                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                    intervalHours === val ? 'bg-purple-600 text-white' : 'glass-card text-gray-400 hover:text-white'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-gray-300">Posting Interval</label>
+                <div className="flex rounded-lg overflow-hidden border border-white/[0.1] text-[10px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setIntervalUnit('minutes')}
+                    className={`px-2 py-0.5 ${intervalUnit === 'minutes' ? 'bg-purple-600 text-white' : 'glass-card text-gray-400'}`}
+                  >
+                    Minutes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIntervalUnit('hours')}
+                    className={`px-2 py-0.5 ${intervalUnit === 'hours' ? 'bg-purple-600 text-white' : 'glass-card text-gray-400'}`}
+                  >
+                    Hours
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-2 items-center">
+                <input
+                  type="number"
+                  min={1}
+                  className="w-full glass-input rounded-xl px-4 py-2.5 text-sm"
+                  value={intervalVal}
+                  onChange={(e) => setIntervalVal(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+                <span className="text-xs font-semibold text-gray-400 shrink-0">
+                  {intervalUnit}
+                </span>
+              </div>
+
+              {/* Interval presets */}
+              <div className="flex gap-1.5 flex-wrap mt-2">
+                {[
+                  { label: 'Every 2 min', unit: 'minutes' as const, val: 2 },
+                  { label: 'Every 5 min', unit: 'minutes' as const, val: 5 },
+                  { label: 'Every 15 min', unit: 'minutes' as const, val: 15 },
+                  { label: 'Every 1 hour', unit: 'hours' as const, val: 1 },
+                  { label: 'Every 4 hours', unit: 'hours' as const, val: 4 },
+                  { label: 'Daily (24h)', unit: 'hours' as const, val: 24 },
+                ].map(({ label, unit, val }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      setIntervalUnit(unit)
+                      setIntervalVal(val)
+                    }}
+                    className={`text-[10px] px-2.5 py-1 rounded-lg font-medium transition-colors ${
+                      intervalUnit === unit && intervalVal === val
+                        ? 'bg-purple-600 text-white shadow'
+                        : 'glass-card text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
