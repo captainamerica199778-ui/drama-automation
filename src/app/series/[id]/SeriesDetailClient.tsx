@@ -16,6 +16,7 @@ import {
   Check,
   X,
   Image as ImageIcon,
+  UploadCloud,
 } from 'lucide-react'
 
 const statusBadge: Record<string, { bg: string; text: string; dot: string }> = {
@@ -43,6 +44,38 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
   const [editTags, setEditTags] = useState(initialSeries.tags || '')
   const [editCoverUrl, setEditCoverUrl] = useState(initialSeries.coverUrl || '')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [uploadingThumb, setUploadingThumb] = useState(false)
+
+  const handleUploadCoverFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingThumb(true)
+    setMsg('Uploading thumbnail to Cloudflare R2…')
+    try {
+      const presignRes = await fetch('/api/upload/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seriesId: series.id,
+          fileName: `cover_${file.name}`,
+          contentType: file.type || 'image/jpeg',
+        }),
+      })
+      if (!presignRes.ok) throw new Error('Failed to obtain direct upload URL')
+      const { uploadUrl, publicUrl } = await presignRes.json()
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type || 'image/jpeg' },
+      })
+      setEditCoverUrl(publicUrl)
+      setMsg('✅ Thumbnail uploaded! Click "Save Changes" to apply.')
+    } catch (err: any) {
+      setMsg(`❌ Thumbnail upload error: ${err.message}`)
+    } finally {
+      setUploadingThumb(false)
+    }
+  }
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -525,10 +558,10 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
 
               <div>
                 <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                  Cover Image / Thumbnail URL
+                  Series Thumbnail / Cover Image
                 </label>
-                <div className="flex gap-3 items-center">
-                  <div className="w-14 h-14 rounded-xl bg-black/40 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center">
+                <div className="flex gap-3 items-start">
+                  <div className="w-16 h-16 rounded-xl bg-black/40 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center">
                     {editCoverUrl ? (
                       <img
                         src={editCoverUrl}
@@ -539,16 +572,39 @@ export default function SeriesDetailClient({ initialSeries }: { initialSeries: a
                         }}
                       />
                     ) : (
-                      <ImageIcon size={20} className="text-gray-500" />
+                      <ImageIcon size={22} className="text-gray-500" />
                     )}
                   </div>
-                  <input
-                    type="url"
-                    value={editCoverUrl}
-                    onChange={(e) => setEditCoverUrl(e.target.value)}
-                    className="flex-1 glass-input rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="https://.../cover.jpg or R2 public URL"
-                  />
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="url"
+                      value={editCoverUrl}
+                      onChange={(e) => setEditCoverUrl(e.target.value)}
+                      className="w-full glass-input rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="Paste image URL (https://...)"
+                    />
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg glass-card hover:bg-white/[0.08] text-purple-300 hover:text-white cursor-pointer border border-purple-500/20 transition-colors">
+                        <UploadCloud size={13} /> {uploadingThumb ? 'Uploading to R2…' : 'Upload New Thumbnail'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingThumb}
+                          onChange={handleUploadCoverFile}
+                          className="hidden"
+                        />
+                      </label>
+                      {editCoverUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditCoverUrl('')}
+                          className="text-[11px] text-gray-400 hover:text-rose-400"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 

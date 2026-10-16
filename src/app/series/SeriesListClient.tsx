@@ -13,7 +13,42 @@ import {
   SlidersHorizontal,
   Check,
   Image as ImageIcon,
+  UploadCloud,
 } from 'lucide-react'
+
+function SeriesThumbnail({
+  src,
+  alt,
+  genre,
+}: {
+  src?: string | null
+  alt: string
+  genre?: string
+}) {
+  const [failed, setFailed] = useState(false)
+
+  if (!src || failed) {
+    return (
+      <div className="flex flex-col items-center gap-2 text-purple-400/80 p-4 text-center">
+        <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+          <Tv size={26} className="text-purple-400" />
+        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-purple-300/60 truncate max-w-[200px]">
+          {genre || 'AI Mini Series'}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={src}
+      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+      alt={alt}
+      onError={() => setFailed(true)}
+    />
+  )
+}
 
 const statusBadge: Record<string, { bg: string; text: string; dot: string }> = {
   draft: { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-300', dot: 'bg-gray-400' },
@@ -50,6 +85,38 @@ export default function SeriesListClient({ initialSeries }: { initialSeries: any
   const [editCoverUrl, setEditCoverUrl] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [uploadingThumb, setUploadingThumb] = useState(false)
+
+  const handleUploadCoverFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !editingSeries) return
+    setUploadingThumb(true)
+    setSaveMsg('Uploading thumbnail to Cloudflare R2…')
+    try {
+      const presignRes = await fetch('/api/upload/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seriesId: editingSeries.id,
+          fileName: `cover_${file.name}`,
+          contentType: file.type || 'image/jpeg',
+        }),
+      })
+      if (!presignRes.ok) throw new Error('Failed to obtain direct upload URL')
+      const { uploadUrl, publicUrl } = await presignRes.json()
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type || 'image/jpeg' },
+      })
+      setEditCoverUrl(publicUrl)
+      setSaveMsg('✅ Thumbnail uploaded! Click "Save Changes" to apply.')
+    } catch (err: any) {
+      setSaveMsg(`❌ Thumbnail upload error: ${err.message}`)
+    } finally {
+      setUploadingThumb(false)
+    }
+  }
 
   const openEditModal = (s: any, e: React.MouseEvent) => {
     e.preventDefault()
@@ -280,27 +347,8 @@ export default function SeriesListClient({ initialSeries }: { initialSeries: any
                 <div>
                   {/* Poster Thumbnail */}
                   <div className="relative h-48 bg-gradient-to-b from-purple-950/70 via-gray-950 to-black flex items-center justify-center overflow-hidden border-b border-white/[0.06]">
-                    {thumbnail ? (
-                      <img
-                        src={thumbnail}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        alt={s.title}
-                        onError={(e) => {
-                          // If image fails, replace with placeholder UI
-                          ;(e.target as HTMLElement).style.display = 'none'
-                        }}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center gap-2 text-purple-400/80 p-4 text-center">
-                        <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
-                          <Tv size={26} className="text-purple-400" />
-                        </div>
-                        <span className="text-[11px] font-semibold uppercase tracking-wider text-purple-300/60 truncate max-w-[200px]">
-                          {s.genre || 'AI Mini Series'}
-                        </span>
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0b0d17] via-transparent to-transparent opacity-90" />
+                    <SeriesThumbnail src={thumbnail} alt={s.title} genre={s.genre} />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0b0d17] via-transparent to-transparent opacity-90 pointer-events-none" />
 
                     {/* Top badges */}
                     <div className="absolute top-3 left-3 flex gap-1.5 flex-wrap">
@@ -501,10 +549,10 @@ export default function SeriesListClient({ initialSeries }: { initialSeries: any
               {/* Cover Image / Thumbnail */}
               <div>
                 <label className="text-xs font-semibold text-gray-300 block mb-1.5">
-                  Cover Image / Thumbnail URL
+                  Series Thumbnail / Cover Image
                 </label>
-                <div className="flex gap-3 items-center">
-                  <div className="w-14 h-14 rounded-xl bg-black/40 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center">
+                <div className="flex gap-3 items-start">
+                  <div className="w-16 h-16 rounded-xl bg-black/40 border border-white/10 shrink-0 overflow-hidden flex items-center justify-center">
                     {editCoverUrl ? (
                       <img
                         src={editCoverUrl}
@@ -515,16 +563,39 @@ export default function SeriesListClient({ initialSeries }: { initialSeries: any
                         }}
                       />
                     ) : (
-                      <ImageIcon size={20} className="text-gray-500" />
+                      <ImageIcon size={22} className="text-gray-500" />
                     )}
                   </div>
-                  <input
-                    type="url"
-                    value={editCoverUrl}
-                    onChange={(e) => setEditCoverUrl(e.target.value)}
-                    className="flex-1 glass-input rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    placeholder="https://.../cover.jpg or R2 public URL"
-                  />
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="url"
+                      value={editCoverUrl}
+                      onChange={(e) => setEditCoverUrl(e.target.value)}
+                      className="w-full glass-input rounded-xl px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      placeholder="Paste image URL (https://...)"
+                    />
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg glass-card hover:bg-white/[0.08] text-purple-300 hover:text-white cursor-pointer border border-purple-500/20 transition-colors">
+                        <UploadCloud size={13} /> {uploadingThumb ? 'Uploading to R2…' : 'Upload New Thumbnail'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={uploadingThumb}
+                          onChange={handleUploadCoverFile}
+                          className="hidden"
+                        />
+                      </label>
+                      {editCoverUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setEditCoverUrl('')}
+                          className="text-[11px] text-gray-400 hover:text-rose-400"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 

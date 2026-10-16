@@ -135,6 +135,15 @@ export default function UploadClient({
             headers: { 'Content-Type': thumbnailFile.type || 'image/jpeg' },
           })
           uploadedThumbnailUrl = publicUrl
+
+          // Update series record so it prominently displays this thumbnail!
+          await fetch(`/api/series/${activeSeriesId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              coverUrl: uploadedThumbnailUrl,
+            }),
+          }).catch((err) => console.warn('Notice: Failed to update series coverUrl:', err))
         }
       } catch (e) {
         console.warn('Thumbnail presign upload notice:', e)
@@ -391,6 +400,23 @@ export default function UploadClient({
                   className="w-full glass-input rounded-xl px-4 py-2 text-xs file:mr-4 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-purple-600 file:text-white"
                   onChange={(e) => setThumbnailFile(e.target.files?.[0] || null)}
                 />
+                {thumbnailFile && (
+                  <div className="mt-3 flex items-center gap-3 bg-purple-950/30 p-2.5 rounded-xl border border-purple-500/20">
+                    <img
+                      src={URL.createObjectURL(thumbnailFile)}
+                      alt="Thumbnail preview"
+                      className="w-14 h-14 rounded-lg object-cover border border-purple-400/40 shadow"
+                    />
+                    <div>
+                      <div className="text-xs font-semibold text-white truncate max-w-[240px]">
+                        {thumbnailFile.name}
+                      </div>
+                      <div className="text-[11px] text-purple-300">
+                        {(thumbnailFile.size / 1024).toFixed(0)} KB · Will be saved as Series Cover
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}
